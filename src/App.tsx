@@ -26,20 +26,19 @@ function StateBadge({ state }: { state: PatchState }) {
   return (
     <span className={`badge badge-${state.toLowerCase()}`}>
       <b>{STATE_LABEL[state]}</b>
-      <small>{state}</small>
     </span>
   )
-}
-
-/** Shorten a SHA-256 digest for display: first 6 + last 4. */
-function shortHash(digest: string): string {
-  if (!digest) return '—'
-  return `${digest.slice(0, 6)}…${digest.slice(-4)}`
 }
 
 function bytes(size: number): string {
   if (!size) return '—'
   return `${size.toLocaleString('zh-CN')} 字节`
+}
+
+/** Actionable notes only — hide informational PE tips for ordinary users. */
+function actionableNotes(report: ReportDto): string[] {
+  if (report.state === 'FOREIGN' || report.state === 'UNRESOLVED') return report.notes
+  return []
 }
 
 export default function App() {
@@ -52,13 +51,12 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
-  const [processes, setProcesses] = useState<string[]>([])
+  const [processes, setProcesses] = useState<string[] | null>(null)
   const [env, setEnv] = useState<EnvReport | null>(null)
   const [includeWine, setIncludeWine] = useState(false)
   const [log, setLog] = useState<LogReport | null>(null)
   const [statePath, setStatePath] = useState('')
 
-  /** Runs an async action with the shared busy/error/notice plumbing. */
   const guard = useCallback(
     async (label: string, action: () => Promise<void>) => {
       setBusy(label)
@@ -75,16 +73,11 @@ export default function App() {
     [],
   )
 
-  const refreshStatus = useCallback(
-    async (root: string | null) => {
-      const next = await api.status(root)
-      setReport(next)
-      // The backend remembers the last install; keep the picker in sync with
-      // whatever it actually resolved.
-      if (next.install?.root) setSelected(next.install.root)
-    },
-    [],
-  )
+  const refreshStatus = useCallback(async (root: string | null) => {
+    const next = await api.status(root)
+    setReport(next)
+    if (next.install?.root) setSelected(next.install.root)
+  }, [])
 
   const loadInstalls = useCallback(async () => {
     const found = await api.listInstalls()
@@ -157,14 +150,14 @@ export default function App() {
 
   const site = report?.target?.site ?? null
   const sidecars = report?.sidecars ?? null
+  const notes = report ? actionableNotes(report) : []
+  const showStateHelp =
+    report && (report.state === 'FOREIGN' || report.state === 'UNRESOLVED')
 
   return (
     <div className="app">
       <header className="topbar">
-        <div>
-          <h1>战舰世界 macOS 补丁工具</h1>
-          <p>让《战舰世界》在 CrossOver 下正常登录。所有改动都可以一键还原。</p>
-        </div>
+        <h1>战舰世界 macOS 补丁工具</h1>
         <div className="top-actions">
           <select
             value={selected ?? ''}
@@ -214,14 +207,16 @@ export default function App() {
           {!report ? (
             <div className="empty">
               <h2>没有可用的安装</h2>
-              <p>请用「选择文件夹…」手动指定《战舰世界》的安装目录。</p>
+              <p>请用「选择文件夹…」指定《战舰世界》安装目录。</p>
             </div>
           ) : (
             <div className="grid">
               <section className="panel">
                 <div className="panel-head">
                   <StateBadge state={report.state} />
-                  <span className="muted">{report.state_help}</span>
+                  {showStateHelp && (
+                    <span className="error-text">{report.state_help}</span>
+                  )}
                 </div>
 
                 {report.install && (
@@ -229,35 +224,19 @@ export default function App() {
                     <Field label="安装目录" value={report.install.root} mono />
                     <Field
                       label="构建"
-                      value={
-                        <>
-                          {report.install.version ?? report.install.build ?? '?'}
-                          <span className="muted"> · {report.install.build_source}</span>
-                        </>
-                      }
+                      value={report.install.version ?? report.install.build ?? '?'}
                     />
                   </>
-                )}
-                {report.target && (
-                  <Field label="目标" value={report.target.name} mono />
-                )}
-                {report.target?.exists && (
-                  <Field
-                    label="SHA-256"
-                    value={`${shortHash(report.target.sha256)} · ${bytes(report.target.size)}`}
-                    mono
-                  />
                 )}
                 <Field
                   label="备份"
                   value={
                     report.backup?.exists ? (
-                      <span className="ok-text">{report.backup.name}（可还原）</span>
+                      <span className="ok-text">已有，可还原</span>
                     ) : (
                       <span className="muted">无</span>
                     )
                   }
-                  mono
                 />
 
                 {report.error && <p className="error-text">{report.error}</p>}
@@ -277,88 +256,41 @@ export default function App() {
                   >
                     从备份还原
                   </button>
-                  <button
-                    className="ghost"
-                    onClick={onClean}
-                    disabled={!report.needs_clean || !!busy}
-                  >
-                    清理 ._ 文件{sidecars ? `（${sidecars.count}）` : ''}
-                  </button>
+                  {report.needs_clean && (
+                    <button className="ghost" onClick={onClean} disabled={!!busy}>
+                      清理 ._ 文件{sidecars ? `（${sidecars.count}）` : ''}
+                    </button>
+                  )}
                 </div>
               </section>
 
-              {site && (
+              {sidecars && sidecars.count > 0 && (
                 <section className="panel">
-                  <h2>补丁位置</h2>
-                  <Field label="导出函数" value={site.export_name} mono />
-                  <Field
-                    label="地址"
-                    value={`RVA 0x${site.export_rva.toString(16)} → 文件偏移 0x${site.file_offset.toString(16)}`}
-                    mono
-                  />
-                  <Field
-                    label="所在节"
-                    value={
-                      <>
-                        {site.section}
-                        <span className={site.section_is_code ? 'ok-text' : 'warn-text'}>
-                          {site.section_is_code ? ' · 可执行代码' : ' · 非可执行'}
-                        </span>
-                      </>
-                    }
-                  />
-                  <Field label="当前字节" value={site.current_bytes || '（无法读取）'} mono />
-                  <Field
-                    label="补丁后"
-                    value={`${report.patch_bytes}   ${report.patch_disasm}`}
-                    mono
-                  />
-                  <Field
-                    label="Wine 引用"
-                    value={
-                      site.wine_reference ?? (
-                        <span className="muted">
-                          未在此函数中找到证据（仅供参考，不影响打补丁）
-                        </span>
-                      )
-                    }
-                  />
+                  <h2>需清理的 ._ 文件</h2>
+                  <p>
+                    共 <b>{sidecars.count.toLocaleString('zh-CN')}</b> 个
+                    {sidecars.in_live_build > 0 && (
+                      <span className="warn-text">
+                        ，其中 {sidecars.in_live_build} 个在当前构建内，可能导致无法启动
+                      </span>
+                    )}
+                  </p>
+                  <ul className="folders">
+                    {sidecars.by_folder.map(([label, count]) => (
+                      <li key={label}>
+                        <span className="mono">{label}</span>
+                        <span>{count.toLocaleString('zh-CN')}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </section>
               )}
 
-              {sidecars && (
-                <section className="panel">
-                  <h2>macOS 元数据文件</h2>
-                  {sidecars.count === 0 ? (
-                    <p className="muted">未发现 '._' 文件。</p>
-                  ) : (
-                    <>
-                      <p>
-                        共 <b>{sidecars.count.toLocaleString('zh-CN')}</b> 个
-                        {sidecars.in_live_build > 0 && (
-                          <span className="warn-text">
-                            ，其中 {sidecars.in_live_build} 个位于当前构建内 —— 游戏会因此无法启动
-                          </span>
-                        )}
-                      </p>
-                      <ul className="folders">
-                        {sidecars.by_folder.map(([label, count]) => (
-                          <li key={label}>
-                            <span className="mono">{label}</span>
-                            <span>{count.toLocaleString('zh-CN')}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </section>
-              )}
-
-              {report.notes.length > 0 && (
+              {notes.length > 0 && (
                 <section className="panel wide-panel">
-                  <h2>提示</h2>
+                  <h2>需要处理</h2>
                   <ul className="notes">
-                    {report.notes.map((note, index) => (
+                    {notes.map((note, index) => (
                       <li key={index}>{note}</li>
                     ))}
                   </ul>
@@ -378,11 +310,13 @@ export default function App() {
                 检查
               </button>
             </div>
-            {!processes.length ? (
-              <p className="muted">未检测到游戏或启动器进程。</p>
+            {processes === null ? (
+              <p className="muted">点击检查</p>
+            ) : processes.length === 0 ? (
+              <p className="ok-text">未检测到游戏或启动器进程</p>
             ) : (
               <>
-                <p className="warn-text">以下进程正在运行，打补丁前建议先退出：</p>
+                <p className="warn-text">请先退出以下进程再打补丁：</p>
                 <ul className="notes">
                   {processes.map(name => (
                     <li key={name} className="mono">
@@ -413,10 +347,29 @@ export default function App() {
             </div>
 
             {!env ? (
-              <p className="muted">
-                尚未运行。主机名是第一嫌疑人：游戏靠它确定自己的本地 IP，
-                而这正是登录失败最常见的原因。
-              </p>
+              <p className="muted">点击运行检查</p>
+            ) : env.hostname_ok ? (
+              <>
+                <p className="ok-text">主机名正常</p>
+                <Field label="HostName" value={env.host_name} mono />
+                {env.egress_interface && (
+                  <Field
+                    label="出站网卡"
+                    value={
+                      <>
+                        {env.egress_interface}
+                        {env.vpn_warning && (
+                          <span className="warn-text"> · 正在走 VPN 隧道</span>
+                        )}
+                      </>
+                    }
+                    mono
+                  />
+                )}
+                {includeWine && env.wine_registry && (
+                  <Field label="Wine 注册表" value={env.wine_registry} mono />
+                )}
+              </>
             ) : (
               <>
                 <Field
@@ -424,44 +377,45 @@ export default function App() {
                   value={
                     <>
                       {env.host_name || '（未设置）'}
-                      <span className={env.host_name.endsWith('.local') ? 'ok-text' : 'warn-text'}>
-                        {env.host_name.endsWith('.local') ? ' · 正确' : ' · 必须以 .local 结尾'}
+                      <span className="warn-text">
+                        {env.host_name.endsWith('.local') ? '' : ' · 必须以 .local 结尾'}
                       </span>
                     </>
                   }
                   mono
                 />
-                <Field label="LocalHostName" value={`${env.local_host_name}（不要修改）`} mono />
                 <Field
                   label="解析结果"
                   value={
-                    env.resolved_address ?? <span className="warn-text">无法解析 —— 这就是根因</span>
+                    env.resolved_address ?? <span className="warn-text">无法解析</span>
                   }
                   mono
                 />
-                {includeWine && (
+                {env.egress_interface && (
                   <Field
-                    label="Wine 注册表"
-                    value={env.wine_registry ?? <span className="muted">查询失败或未找到 CrossOver</span>}
+                    label="出站网卡"
+                    value={
+                      <>
+                        {env.egress_interface}
+                        {env.vpn_warning && (
+                          <span className="warn-text"> · 正在走 VPN 隧道</span>
+                        )}
+                      </>
+                    }
                     mono
                   />
                 )}
-                <Field
-                  label="出站网卡"
-                  value={
-                    <>
-                      {env.egress_interface ?? '未知'}
-                      {env.vpn_warning && (
-                        <span className="warn-text"> · 正在走 VPN 隧道</span>
-                      )}
-                    </>
-                  }
-                  mono
-                />
+                {includeWine && (
+                  <Field
+                    label="Wine 注册表"
+                    value={env.wine_registry ?? <span className="muted">未找到</span>}
+                    mono
+                  />
+                )}
 
                 {env.fix_command && (
                   <div className="fix-card">
-                    <p>在终端执行下面这一条即可修复：</p>
+                    <p>在终端执行以修复：</p>
                     <code>{env.fix_command}</code>
                     <div className="actions">
                       <button
@@ -480,46 +434,49 @@ export default function App() {
                   </div>
                 )}
 
-                {env.notes.length > 0 && (
-                  <ul className="notes">
-                    {env.notes.map((note, index) => (
-                      <li key={index}>{note}</li>
-                    ))}
-                  </ul>
+                {(env.notes.length > 0 || env.dead_ends.length > 0) && (
+                  <details className="dead-ends">
+                    <summary>说明与无效做法</summary>
+                    {env.notes.length > 0 && (
+                      <ul className="notes">
+                        {env.notes.map((item, index) => (
+                          <li key={`n-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {env.dead_ends.length > 0 && (
+                      <ul className="notes">
+                        {env.dead_ends.map((item, index) => (
+                          <li key={`d-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </details>
                 )}
-
-                <details className="dead-ends">
-                  <summary>不要尝试这两种做法（已验证无效）</summary>
-                  <ul className="notes">
-                    {env.dead_ends.map((item, index) => (
-                      <li key={index}>{item}</li>
-                    ))}
-                  </ul>
-                </details>
               </>
             )}
           </section>
 
           <section className="panel wide-panel">
             <div className="panel-head">
-              <h2>游戏日志诊断</h2>
+              <h2>游戏日志</h2>
               <button className="ghost" onClick={onScanLog} disabled={!!busy}>
                 分析日志
               </button>
             </div>
 
             {!log ? (
-              <p className="muted">尚未分析。逐会话统计网络错误，用于确认主机名修复是否真的生效。</p>
+              <p className="muted">点击分析日志</p>
             ) : !log.exists ? (
               <p className="muted">找不到日志：{log.path}</p>
             ) : (
               <>
                 <p className="muted mono">
                   {log.path} · {bytes(log.size)}
-                  {log.modified && ` · 最后写入 ${log.modified}`}
+                  {log.modified && ` · ${log.modified}`}
                 </p>
                 {log.sessions.length === 0 ? (
-                  <p className="muted">日志中还没有会话记录。</p>
+                  <p className="muted">暂无会话记录</p>
                 ) : (
                   <table className="table">
                     <thead>
@@ -544,7 +501,6 @@ export default function App() {
                     </tbody>
                   </table>
                 )}
-                <p className="muted">最下面一行是最近一次启动。</p>
               </>
             )}
           </section>
@@ -556,10 +512,9 @@ export default function App() {
           <section className="panel">
             <h2>关于</h2>
             <p>
-              Rust 重写版。补丁偏移每次运行都从 DLL 的导出表重新解析，从不硬编码，
-              因此游戏更新后不会写坏文件。
+              补丁偏移每次从 DLL 导出表重新解析，游戏更新后也不会写坏文件。所有改动可一键还原。
             </p>
-            <Field label="状态文件" value={statePath} mono />
+            <Field label="状态文件" value={statePath || '—'} mono />
             <div className="actions">
               <button
                 className="ghost"
@@ -569,9 +524,6 @@ export default function App() {
                 在 Finder 中显示
               </button>
             </div>
-            <p className="muted">
-              记录每次补丁的偏移、哈希与时间戳；还原时据此核对备份是否仍属于当前构建。
-            </p>
           </section>
         </div>
       )}
@@ -580,12 +532,7 @@ export default function App() {
         <div className="overlay" onClick={() => setConfirming(false)}>
           <div className="modal" onClick={event => event.stopPropagation()}>
             <h2>确认打补丁</h2>
-            <Field label="修改" value={report.target.path} mono />
-            <Field
-              label="偏移"
-              value={`0x${site.file_offset.toString(16).toUpperCase()}（3 字节）`}
-              mono
-            />
+            <Field label="文件" value={report.target.name} mono />
             <pre className="diff">
               <div>
                 <span className="muted">before </span>
@@ -601,11 +548,9 @@ export default function App() {
               <Field label="备份" value={`→ ${report.backup.name}`} mono />
             )}
             {sidecars && sidecars.count > 0 && (
-              <Field label="清理" value={`同时删除 ${sidecars.count} 个 '._' 元数据文件`} />
+              <Field label="清理" value={`同时删除 ${sidecars.count} 个 '._' 文件`} />
             )}
-            <p className="warn-text">
-              请先退出游戏和它的启动器（Steam 或 Wargaming Game Center）。
-            </p>
+            <p className="warn-text">请先退出游戏和启动器。</p>
             <div className="actions end">
               <button className="ghost" onClick={() => setConfirming(false)}>
                 取消
