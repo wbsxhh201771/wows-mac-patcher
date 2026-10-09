@@ -72,6 +72,35 @@ p {
   flex-shrink: 0;
 }
 
+.lang-switch {
+  display: inline-flex;
+  border: 1px solid #263957;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #111b2c;
+}
+
+.lang {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 11px;
+  color: #8ea3c4;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lang:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  color: #dfe9fb;
+}
+
+.lang.active {
+  background: #1a2d4d;
+  color: #dfe9fb;
+}
+
 select {
   background: #111b2c;
   border: 1px solid #263957;
