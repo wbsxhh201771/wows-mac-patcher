@@ -52,6 +52,10 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      # generate_context! 在编译期要求 frontendDist（../dist）存在
+      - name: Build frontend
+        run: npm run build
+
       - name: Test
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
