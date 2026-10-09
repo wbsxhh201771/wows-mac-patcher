@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+._*
+
+# Release / build
+build/
+
+# Local drafts and notes (never committed)
+.local/
+
+# --- Rust / Tauri app ---------------------------------------------------
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+out/
+*.tsbuildinfo

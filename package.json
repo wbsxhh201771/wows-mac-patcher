@@ -1,0 +1,27 @@
+{
+  "name": "wows-mac-patcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "macOS GUI patcher for World of Warships under CrossOver",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "release:mac": "tauri build && node scripts/collect-artifacts.mjs",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5"
+  }
+}
