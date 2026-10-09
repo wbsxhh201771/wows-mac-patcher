@@ -1,0 +1,31 @@
+[package]
+name = "wows-mac-patcher"
+version = "0.1.0"
+description = "macOS GUI patcher for World of Warships under CrossOver"
+authors = ["chen.ruhui"]
+edition = "2021"
+
+[lib]
+name = "wows_mac_patcher_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# Deliberately small. `sysinfo` (process detection) is replaced by shelling out
+# to `pgrep`, `tempfile` by `fsutil::atomic_write`, and the dialog/opener Tauri
+# plugins by `osascript` and `open(1)` -- all three are things macOS already
+# provides, and each one is a whole dependency tree we do not need to compile.
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+sha2 = "0.10"
+walkdir = "2"
+regex = "1"
+dirs = "6"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
